@@ -77,30 +77,31 @@ if not df.empty:
         else:
             st.success("No errors detected in this Kebele!")
 
-    # 5. Comparison Analysis (Ranking Areas by Error Rate)
+    # 5. Comparison Analysis (Accurate Percentage Ranking)
     st.divider()
     st.subheader("📊 Comparison Analysis (Priority Ranking)")
-    st.info("Areas are sorted by Error % (out of 100) to highlight the highest error rates.")
+    st.info("Areas are ranked by the actual Error Rate (Total Errors / Total Records) %.")
     
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
     sel_items = st.multiselect(f"Select {comp_type}s to Compare", sorted(df[comp_type].unique().tolist()))
     
     if sel_items:
         df_comp = df[df[comp_type].isin(sel_items)]
+        # Group to get total errors and total records count per area
         grouped = df_comp.groupby(comp_type)['Total_Errors'].agg(['sum', 'count'])
         
-        # Calculate Error %
         summary = pd.DataFrame()
-        summary['Errors'] = grouped['sum']
+        summary['Total Errors'] = grouped['sum']
         summary['Total Records'] = grouped['count']
-        summary['Error %'] = ((grouped['sum'] / grouped['count']) * 100).clip(upper=100).round(2)
+        # Calculate true Error Rate %
+        summary['Error Rate %'] = ((summary['Total Errors'] / summary['Total Records']) * 100).round(2)
         
-        # SORT by Error % descending so the most problematic areas are ranked first
-        summary = summary.sort_values(by='Error %', ascending=False)
+        # Sort by highest Error Rate % so priority areas appear at the top
+        summary = summary.sort_values(by='Error Rate %', ascending=False)
         
         c_a, c_b = st.columns(2)
-        c_a.bar_chart(summary[['Error %']])
-        c_b.bar_chart(summary[['Errors']])
+        c_a.bar_chart(summary[['Error Rate %']])
+        c_b.bar_chart(summary[['Total Errors']])
         st.dataframe(summary, use_container_width=True)
 
     st.subheader("Full Flagged Records")
