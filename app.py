@@ -29,7 +29,7 @@ st.title("🌱 Nursery Quality Control & Correction Dashboard")
 df = fetch_and_clean_data()
 
 if not df.empty:
-    # 1. PRE-CALCULATE ERRORS (Ensures 'Total_Errors' exists for all operations)
+    # 1. PRE-CALCULATE ERRORS
     species_list = ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']
     df['Total_Errors'] = 0
     for s in species_list:
@@ -54,16 +54,9 @@ if not df.empty:
     kebele = col_f4.selectbox("Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
     df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
 
-    # 3. Global Metrics & Trends
+    # 3. Global Metrics
     st.metric("Total Records with QC Errors", int(df_f['Total_Errors'].sum()))
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("Error Distribution by Woreda")
-        st.bar_chart(df_f.groupby("Woreda")['Total_Errors'].sum())
-    with c2:
-        st.subheader("Error Trend by Kebele")
-        st.line_chart(df_f.groupby("Kebele")['Total_Errors'].sum())
-
+    
     # 4. Species Analysis & Correction
     if kebele != "All":
         st.divider()
@@ -84,9 +77,11 @@ if not df.empty:
         else:
             st.success("No errors detected in this Kebele!")
 
-    # 5. Comparison Analysis (Performance Metrics)
+    # 5. Comparison Analysis (Ranking Areas by Error Rate)
     st.divider()
-    st.subheader("📊 Comparison Analysis (Performance Metrics)")
+    st.subheader("📊 Comparison Analysis (Priority Ranking)")
+    st.info("Areas are sorted by Error % (out of 100) to highlight the highest error rates.")
+    
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
     sel_items = st.multiselect(f"Select {comp_type}s to Compare", sorted(df[comp_type].unique().tolist()))
     
@@ -94,14 +89,18 @@ if not df.empty:
         df_comp = df[df[comp_type].isin(sel_items)]
         grouped = df_comp.groupby(comp_type)['Total_Errors'].agg(['sum', 'count'])
         
-        # Calculate Error % as (Errors / Total Records) * 100, capped at 100
+        # Calculate Error %
         summary = pd.DataFrame()
         summary['Errors'] = grouped['sum']
+        summary['Total Records'] = grouped['count']
         summary['Error %'] = ((grouped['sum'] / grouped['count']) * 100).clip(upper=100).round(2)
         
+        # SORT by Error % descending so the most problematic areas are ranked first
+        summary = summary.sort_values(by='Error %', ascending=False)
+        
         c_a, c_b = st.columns(2)
-        c_a.bar_chart(summary[['Errors']])
-        c_b.bar_chart(summary[['Error %']])
+        c_a.bar_chart(summary[['Error %']])
+        c_b.bar_chart(summary[['Errors']])
         st.dataframe(summary, use_container_width=True)
 
     st.subheader("Full Flagged Records")
