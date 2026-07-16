@@ -64,8 +64,8 @@ if not df.empty:
             # Clean and convert to numeric to ensure accurate comparison
             df[r] = pd.to_numeric(df[r].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             df[sc] = pd.to_numeric(df[sc].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            # Flag error if seedling count is greater than expected, or if gap > 200
-            mask = (df[sc] > df[r]) | ((df[r] - df[sc]) > 200)
+            # Flag error if seedling count is greater than expected, or if gap > 100
+            mask = (df[sc] > df[r]) | ((df[r] - df[sc]) > 100)
             df.loc[mask, 'Total_Errors'] = 1
 
     st.title("🌱 Nursery Quality Control & Correction Dashboard")
@@ -111,7 +111,7 @@ if not df.empty:
             df.update(edited_df)
             st.session_state.data = df
             res = save_to_github(df, st.session_state.sha)
-            if res.status_code == 200:
+            if res.status_code == 100:
                 st.success("Changes saved! Refreshing...")
                 st.rerun()
     else:
