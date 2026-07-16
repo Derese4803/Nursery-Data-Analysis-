@@ -6,66 +6,72 @@ import io
 
 # --- CONFIGURATION ---
 GITHUB_OWNER = "Derese4803"
-GITHUB_REPO = "Nursery-Data-Analysis-"
+GITHUB_REPO = "Nursery-Data-Analysis-" 
 CSV_FILENAME = "amhara_me_2026.csv"
 
 st.set_page_config(page_title="Nursery-Data-Analysis", layout="wide")
 
-@st.cache_data(ttl=300)
+# --- DATA FETCHING ---
+@st.cache_data(ttl=60)
 def fetch_data():
     token = st.secrets.get("github", {}).get("token")
+    if not token:
+        st.error("GitHub token missing in secrets.")
+        return pd.DataFrame()
+        
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
     
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        content = base64.b64decode(response.json()['content']).decode('utf-8')
-        return pd.read_csv(io.StringIO(content))
+        response = requests.get(url, headers=headers, timeout=15)
+        if response.status_code == 200:
+            content = base64.b64decode(response.json()['content']).decode('utf-8')
+            return pd.read_csv(io.StringIO(content))
+        else:
+            st.error(f"GitHub Error {response.status_code}: Check repo name or file path.")
+            return pd.DataFrame()
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Connection Error: {e}")
         return pd.DataFrame()
 
-# --- APP INTERFACE ---
+# --- INTERFACE ---
 st.title("🌱 Nursery-Data-Analysis")
 df = fetch_data()
 
 if not df.empty:
-    # 1. Hierarchical Filters
-    st.sidebar.header("Filter Data")
+    st.sidebar.header("Hierarchical Filters")
     
-    # Zone Filter
+    # 1. Zone
     zones = ["All"] + sorted(df["Zone"].unique().tolist())
-    selected_zone = st.sidebar.selectbox("Select Zone", zones)
-    df_filtered = df if selected_zone == "All" else df[df["Zone"] == selected_zone]
+    sel_zone = st.sidebar.selectbox("1. Select Zone", zones)
+    df_f = df if sel_zone == "All" else df[df["Zone"] == sel_zone]
     
-    # Woreda Filter
-    woredas = ["All"] + sorted(df_filtered["Woreda"].unique().tolist())
-    selected_woreda = st.sidebar.selectbox("Select Woreda", woredas)
-    df_filtered = df_filtered if selected_woreda == "All" else df_filtered[df_filtered["Woreda"] == selected_woreda]
+    # 2. Woreda
+    woredas = ["All"] + sorted(df_f["Woreda"].unique().tolist())
+    sel_woreda = st.sidebar.selectbox("2. Select Woreda", woredas)
+    df_f = df_f if sel_woreda == "All" else df_f[df_f["Woreda"] == sel_woreda]
     
-    # Kebele Filter
-    kebeles = ["All"] + sorted(df_filtered["Kebele"].unique().tolist())
-    selected_kebele = st.sidebar.selectbox("Select Kebele", kebeles)
-    df_filtered = df_filtered if selected_kebele == "All" else df_filtered[df_filtered["Kebele"] == selected_kebele]
+    # 3. Kebele
+    kebeles = ["All"] + sorted(df_f["Kebele"].unique().tolist())
+    sel_kebele = st.sidebar.selectbox("3. Select Kebele", kebeles)
+    df_f = df_f if sel_kebele == "All" else df_f[df_f["Kebele"] == sel_kebele]
     
-    # 2. Species Selector
-    # Get unique species names (e.g., 'Gesho', 'Grevillea') from column headers
-    species_options = sorted(list(set([c.split(' ')[0] for c in df.columns if ' ' in c])))
-    selected_species = st.selectbox("Select Species to Analyze", species_options)
+    st.divider()
     
-    # 3. Display Aggregated Metrics for selected species
-    st.subheader(f"Analysis: {selected_species} in {selected_woreda} (Zone: {selected_zone})")
+    # 4. Species Analysis
+    species_list = sorted(list(set([c.split(' ')[0] for c in df.columns if ' ' in c])))
+    sel_species = st.selectbox("Select Species for Metric Analysis", species_list)
     
-    # Dynamically find columns related to the selected species
-    cols_to_sum = [c for c in df.columns if c.startswith(selected_species)]
+    st.subheader(f"Results: {sel_species} in {sel_kebele}, {sel_woreda}")
     
+    # Dynamically find columns
+    cols_to_sum = [c for c in df.columns if c.startswith(sel_species)]
     if cols_to_sum:
-        metrics = df_filtered[cols_to_sum].sum()
+        metrics = df_f[cols_to_sum].sum()
         cols = st.columns(len(metrics))
         for i, (name, val) in enumerate(metrics.items()):
-            cols[i].metric(name.replace(f"{selected_species} ", ""), int(val))
+            cols[i].metric(name.replace(f"{sel_species} ", ""), int(val))
     
-    st.dataframe(df_filtered, use_container_width=True)
-
+    st.dataframe(df_f, use_container_width=True)
 else:
-    st.warning("Data not found. Please check your GitHub repository.")
+    st.warning("Data not found. Please verify the CSV path and your GitHub token permissions.")
