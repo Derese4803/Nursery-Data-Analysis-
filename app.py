@@ -9,7 +9,7 @@ GITHUB_OWNER = "Derese4803"
 GITHUB_REPO = "Nursery-Data-Analysis-" 
 CSV_FILENAME = "amhara_me_2026.csv"
 
-st.set_page_config(page_title="Nursery QC Dashboard", layout="wide")
+st.set_page_config(page_title="Nursery QC Comparison", layout="wide")
 
 @st.cache_data(ttl=60)
 def fetch_and_clean_data():
@@ -30,56 +30,39 @@ def fetch_and_clean_data():
             if ready_c in df.columns and seed_c in df.columns:
                 df[ready_c] = pd.to_numeric(df[ready_c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
                 df[seed_c] = pd.to_numeric(df[seed_c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-                # Rule: Error if Seedling > Ready OR (Ready - Seedling) > 200
                 error_mask = (df[seed_c] > df[ready_c]) | ((df[ready_c] - df[seed_c]) > 200)
                 df.loc[error_mask, 'Total_Errors'] += 1
         return df
     return pd.DataFrame()
 
 # --- INTERFACE ---
-st.title("🌱 Nursery Quality Control Dashboard")
+st.title("🌱 Nursery QC: Comparison & Percentage Analysis")
 df = fetch_and_clean_data()
 
 if not df.empty:
-    # 1. Hierarchical Filters
-    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-    zone = col_f1.selectbox("Zone", ["All"] + sorted(df["Zone"].unique().tolist()))
-    df_f = df if zone == "All" else df[df["Zone"] == zone]
+    level = st.radio("Select Comparison Level:", ["Zone", "Cluster", "Woreda"], horizontal=True)
+    selected_areas = st.multiselect(f"Select {level}s to Compare", sorted(df[level].unique().tolist()))
     
-    cluster = col_f2.selectbox("Cluster", ["All"] + sorted(df_f["Cluster"].unique().tolist()))
-    df_f = df_f if cluster == "All" else df_f[df_f["Cluster"] == cluster]
-    
-    woreda = col_f3.selectbox("Woreda", ["All"] + sorted(df_f["Woreda"].unique().tolist()))
-    df_f = df_f if woreda == "All" else df_f[df_f["Woreda"] == woreda]
-    
-    kebele = col_f4.selectbox("Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
-    df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
-
-    st.divider()
-
-    # 2. Global QC Metrics
-    st.metric("Total Records with QC Errors", int(df_f['Total_Errors'].sum()))
-
-    # 3. Visuals (Bar and Line)
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("Error Distribution by Woreda")
-        st.bar_chart(df_f.groupby("Woreda")['Total_Errors'].sum())
-    with c2:
-        st.subheader("Error Trend by Kebele")
-        st.line_chart(df_f.groupby("Kebele")['Total_Errors'].sum())
-
-    # 4. Species Analysis Table
-    if kebele != "All":
-        st.subheader(f"Detailed Species QC: {kebele}")
-        analysis_data = []
-        for s in ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']:
-            r, s_c = f"{s} Count Ready", f"{s} Ready Seedling"
-            if r in df_f.columns:
-                val_r, val_s = df_f[r].sum(), df_f[s_c].sum()
-                analysis_data.append({"Species": s, "Count Ready": val_r, "Ready Seedling": val_s, "Diff": val_r - val_s})
-        st.dataframe(pd.DataFrame(analysis_data).set_index("Species"), use_container_width=True)
-    
-    st.dataframe(df_f[df_f['Total_Errors'] > 0], use_container_width=True)
+    if selected_areas:
+        df_comp = df[df[level].isin(selected_areas)]
+        
+        # Aggregate Data
+        summary = df_comp.groupby(level)['Total_Errors'].agg(['sum', 'count'])
+        summary['Error %'] = (summary['sum'] / summary['count'] * 100).round(2)
+        
+        # Visual Comparison
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Total Errors by Area")
+            st.bar_chart(summary['sum'])
+        with col2:
+            st.subheader("Error Rate (%)")
+            st.bar_chart(summary['Error %'])
+        
+        # Detailed Table
+        st.subheader("Comparison Statistics")
+        st.dataframe(summary.rename(columns={'sum': 'Total Error Records', 'count': 'Total Records'}), use_container_width=True)
+    else:
+        st.info(f"👈 Select {level}s to view the comparison table and percentage charts.")
 else:
     st.warning("Data not loaded.")
