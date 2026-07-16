@@ -80,11 +80,11 @@ if not df.empty:
         error_df = df_f[df_f['Total_Errors'] > 0]
         if not error_df.empty:
             st.warning("Edit the values below to fix flagged records:")
-            edited_df = st.data_editor(error_df, use_container_width=True)
+            st.data_editor(error_df, use_container_width=True)
         else:
             st.success("No errors detected in this Kebele!")
 
-    # 5. Comparison Analysis
+    # 5. Comparison Analysis (Performance Metrics)
     st.divider()
     st.subheader("📊 Comparison Analysis (Performance Metrics)")
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
@@ -92,14 +92,17 @@ if not df.empty:
     
     if sel_items:
         df_comp = df[df[comp_type].isin(sel_items)]
-        summary = df_comp.groupby(comp_type)[['Total_Errors']].sum()
-        summary['Error %'] = (df_comp.groupby(comp_type)['Total_Errors'].sum() / 
-                              df_comp.groupby(comp_type)['Total_Errors'].count() * 100).round(2)
+        grouped = df_comp.groupby(comp_type)['Total_Errors'].agg(['sum', 'count'])
+        
+        # Calculate Error % as (Errors / Total Records) * 100, capped at 100
+        summary = pd.DataFrame()
+        summary['Errors'] = grouped['sum']
+        summary['Error %'] = ((grouped['sum'] / grouped['count']) * 100).clip(upper=100).round(2)
         
         c_a, c_b = st.columns(2)
-        c_a.bar_chart(summary[['Total_Errors']])
+        c_a.bar_chart(summary[['Errors']])
         c_b.bar_chart(summary[['Error %']])
-        st.dataframe(summary.rename(columns={'Total_Errors': 'Errors'}), use_container_width=True)
+        st.dataframe(summary, use_container_width=True)
 
     st.subheader("Full Flagged Records")
     st.dataframe(df_f[df_f['Total_Errors'] > 0], use_container_width=True)
