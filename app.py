@@ -11,7 +11,6 @@ CSV_FILENAME = "amhara_me_2026.csv"
 
 st.set_page_config(page_title="Nursery-Data-Analysis", layout="wide")
 
-# --- DATA FETCHING ---
 @st.cache_data(ttl=300)
 def fetch_data():
     token = st.secrets.get("github", {}).get("token")
@@ -23,52 +22,50 @@ def fetch_data():
         content = base64.b64decode(response.json()['content']).decode('utf-8')
         return pd.read_csv(io.StringIO(content))
     except Exception as e:
-        st.error(f"Could not load data: {e}")
+        st.error(f"Error: {e}")
         return pd.DataFrame()
 
-# --- INTERFACE ---
+# --- APP INTERFACE ---
 st.title("🌱 Nursery-Data-Analysis")
 df = fetch_data()
 
 if not df.empty:
-    # Sidebar Filters
-    st.sidebar.header("Filter Options")
+    # 1. Hierarchical Filters
+    st.sidebar.header("Filter Data")
     
-    # 1. Species Selection
-    # Extract species names from columns (e.g., 'Gesho Count Ready' -> 'Gesho')
-    species_list = sorted(list(set([col.split(' ')[0] for col in df.columns if ' ' in col])))
-    selected_species = st.sidebar.selectbox("Select Species", species_list)
+    # Zone Filter
+    zones = ["All"] + sorted(df["Zone"].unique().tolist())
+    selected_zone = st.sidebar.selectbox("Select Zone", zones)
+    df_filtered = df if selected_zone == "All" else df[df["Zone"] == selected_zone]
     
-    # 2. Location Filters
-    woreda = st.sidebar.selectbox("Select Woreda", ["All"] + sorted(df["Woreda"].unique().tolist()))
-    kebele = st.sidebar.selectbox("Select Kebele", ["All"] + sorted(df[df["Woreda"] == woreda if woreda != "All" else True]["Kebele"].unique().tolist()))
+    # Woreda Filter
+    woredas = ["All"] + sorted(df_filtered["Woreda"].unique().tolist())
+    selected_woreda = st.sidebar.selectbox("Select Woreda", woredas)
+    df_filtered = df_filtered if selected_woreda == "All" else df_filtered[df_filtered["Woreda"] == selected_woreda]
     
-    # Apply Filtering
-    mask = True
-    if woreda != "All": mask &= (df["Woreda"] == woreda)
-    if kebele != "All": mask &= (df["Kebele"] == kebele)
-    filtered_df = df[mask]
+    # Kebele Filter
+    kebeles = ["All"] + sorted(df_filtered["Kebele"].unique().tolist())
+    selected_kebele = st.sidebar.selectbox("Select Kebele", kebeles)
+    df_filtered = df_filtered if selected_kebele == "All" else df_filtered[df_filtered["Kebele"] == selected_kebele]
     
-    # --- DYNAMIC METRICS ---
-    st.subheader(f"Analysis: {selected_species} | Woreda: {woreda} | Kebele: {kebele}")
+    # 2. Species Selector
+    # Get unique species names (e.g., 'Gesho', 'Grevillea') from column headers
+    species_options = sorted(list(set([c.split(' ')[0] for c in df.columns if ' ' in c])))
+    selected_species = st.selectbox("Select Species to Analyze", species_options)
     
-    # Match columns that start with our selected species
-    col_map = {
-        "Total": f"{selected_species} Total Count",
-        "Healthy": f"{selected_species} Healthy Seeding",
-        "Ready": f"{selected_species} Ready Seedling",
-        "Plan": f"{selected_species} MDB Plan"
-    }
+    # 3. Display Aggregated Metrics for selected species
+    st.subheader(f"Analysis: {selected_species} in {selected_woreda} (Zone: {selected_zone})")
     
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Count", int(filtered_df[col_map["Total"]].sum()) if col_map["Total"] in df.columns else 0)
-    c2.metric("MDB Plan", int(filtered_df[col_map["Plan"]].sum()) if col_map["Plan"] in df.columns else 0)
-    c3.metric("Healthy", int(filtered_df[col_map["Healthy"]].sum()) if col_map["Healthy"] in df.columns else 0)
-    c4.metric("Ready", int(filtered_df[col_map["Ready"]].sum()) if col_map["Ready"] in df.columns else 0)
+    # Dynamically find columns related to the selected species
+    cols_to_sum = [c for c in df.columns if c.startswith(selected_species)]
+    
+    if cols_to_sum:
+        metrics = df_filtered[cols_to_sum].sum()
+        cols = st.columns(len(metrics))
+        for i, (name, val) in enumerate(metrics.items()):
+            cols[i].metric(name.replace(f"{selected_species} ", ""), int(val))
+    
+    st.dataframe(df_filtered, use_container_width=True)
 
-    st.dataframe(filtered_df, use_container_width=True)
-    
-    # Download Button
-    st.download_button("📥 Download Filtered Data", filtered_df.to_csv(index=False).encode('utf-8-sig'), "Nursery_Export.csv")
 else:
-    st.warning("Data not found. Please ensure the CSV file is at the root of the GitHub repo.")
+    st.warning("Data not found. Please check your GitHub repository.")
