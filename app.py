@@ -6,7 +6,7 @@ import io
 
 # --- CONFIGURATION ---
 GITHUB_OWNER = "Derese4803"
-GITHUB_REPO = "control-sample-collction"
+GITHUB_REPO = "Nursery-Data-Analysis-"
 CSV_FILENAME = "amhara_me_2026.csv"
 
 st.set_page_config(page_title="Nursery-Data-Analysis", layout="wide")
