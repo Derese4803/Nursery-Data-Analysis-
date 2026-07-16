@@ -49,11 +49,10 @@ if not df.empty:
         if r in df.columns and sc in df.columns:
             df[r] = pd.to_numeric(df[r].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             df[sc] = pd.to_numeric(df[sc].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            # Flag error ONLY if check fails AND justification is empty
             mask = ((df[sc] > df[r]) | ((df[r] - df[sc]) > 200)) & (df['Justification'].fillna("") == "")
             df.loc[mask, 'Total_Errors'] = 1
 
-    # 2. Filters
+    # 2. Hierarchical Filters
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
     zone = col_f1.selectbox("Zone", ["All"] + sorted(df["Zone"].unique().tolist()))
     df_f = df if zone == "All" else df[df["Zone"] == zone]
@@ -66,24 +65,23 @@ if not df.empty:
 
     # 3. Correction & Justification Center
     st.divider()
-    st.subheader(f"🛠 Correction & Justification Center")
+    st.subheader("🛠 Correction & Justification Center")
     error_df = df_f[df_f['Total_Errors'] > 0]
     
     if not error_df.empty:
-        st.warning("Edit values (Correction) or provide a 'Justification' to clear the flag:")
         edited_df = st.data_editor(error_df, use_container_width=True)
         if st.button("Save Changes to GitHub"):
             df.update(edited_df)
             res = save_to_github(df, file_sha)
             if res.status_code == 200:
-                st.success("Changes saved! Justified records will now be excluded from error counts.")
+                st.success("Changes saved! Justified records are now excluded from error counts.")
                 st.rerun()
             else:
                 st.error("Failed to save to GitHub.")
     else:
-        st.success("No active errors found.")
+        st.success("No active errors found in this selection.")
 
-    # 4. Comparison Analysis
+    # 4. Comparison Analysis (Priority Ranking)
     st.divider()
     st.subheader("📊 Comparison Analysis (Priority Ranking)")
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
@@ -98,6 +96,5 @@ if not df.empty:
         summary['Error Rate %'] = ((summary['Total Errors'] / summary['Total Records']) * 100).round(2)
         summary = summary.sort_values(by='Error Rate %', ascending=False)
         st.dataframe(summary, use_container_width=True)
-
 else:
     st.warning("Data not loaded.")
