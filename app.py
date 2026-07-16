@@ -23,6 +23,8 @@ def fetch_data():
         df = pd.read_csv(io.StringIO(content))
         if 'Justification' not in df.columns:
             df['Justification'] = ""
+        # Ensure Justification is string type from the start
+        df['Justification'] = df['Justification'].fillna("").astype(str)
         return df, response.json()['sha']
     return pd.DataFrame(), None
 
@@ -52,20 +54,19 @@ if st.sidebar.button("🔄 Force Refresh Data"):
     st.rerun()
 
 df = st.session_state.data
+# Force column to string to ensure text entry works
+df['Justification'] = df['Justification'].astype(str)
 
 if not df.empty:
     # 1. HARD RE-CALCULATE ERRORS (Ignore Justification)
     species_list = ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']
     df['Total_Errors'] = 0 
-    
     for s in species_list:
         r, sc = f"{s} Count Ready", f"{s} Ready Seedling"
         if r in df.columns and sc in df.columns:
-            # Clean and convert to numeric to ensure accurate comparison
             df[r] = pd.to_numeric(df[r].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             df[sc] = pd.to_numeric(df[sc].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            # Flag error if seedling count is greater than expected, or if gap > 100
-            mask = (df[sc] > df[r]) | ((df[r] - df[sc]) > 100)
+            mask = (df[sc] > df[r]) | ((df[r] - df[sc]) > 200)
             df.loc[mask, 'Total_Errors'] = 1
 
     st.title("🌱 Nursery Quality Control & Correction Dashboard")
@@ -78,7 +79,7 @@ if not df.empty:
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Records", total_recs)
     col2.metric("Total Errors Found", int(active_errors))
-    col3.metric("Records Justified", int(df['Justification'].replace("", None).count()))
+    col3.metric("Records Justified", int(df['Justification'].replace({"nan": None, "": None}).count()))
     col4.metric("Data Accuracy Rate", f"{accuracy_rate:.2f}%")
 
     # 3. FILTERS
@@ -106,12 +107,20 @@ if not df.empty:
     error_df = df_f[df_f['Total_Errors'] > 0]
     
     if not error_df.empty:
-        edited_df = st.data_editor(error_df, key="editor", use_container_width=True)
+        # Use column_config to force Text input for Justification
+        edited_df = st.data_editor(
+            error_df, 
+            key="editor", 
+            use_container_width=True,
+            column_config={
+                "Justification": st.column_config.TextColumn("Justification", width="large")
+            }
+        )
         if st.button("Save Changes to GitHub"):
             df.update(edited_df)
             st.session_state.data = df
             res = save_to_github(df, st.session_state.sha)
-            if res.status_code == 100:
+            if res.status_code == 200:
                 st.success("Changes saved! Refreshing...")
                 st.rerun()
     else:
@@ -133,8 +142,6 @@ if not df.empty:
             summary['Error Contribution %'] = ((summary['Total Errors'] / total_errors_selected) * 100).round(2)
             st.bar_chart(summary.set_index(comp_type)['Error Contribution %'])
             st.dataframe(summary.sort_values(by='Error Contribution %', ascending=False), use_container_width=True)
-        else:
-            st.info("No errors in selection.")
 
 else:
     st.warning("Data not loaded.")
