@@ -46,7 +46,7 @@ if 'data' not in st.session_state:
 df = st.session_state.data
 
 if not df.empty:
-    # 1. PRE-CALCULATE ERRORS
+    # 1. PRE-CALCULATE ERRORS (Ignores Justification, counts all numerical discrepancies)
     species_list = ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']
     df['Total_Errors'] = 0
     for s in species_list:
@@ -54,7 +54,8 @@ if not df.empty:
         if r in df.columns and sc in df.columns:
             df[r] = pd.to_numeric(df[r].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             df[sc] = pd.to_numeric(df[sc].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            mask = ((df[sc] > df[r]) | ((df[r] - df[sc]) > 200)) & (df['Justification'].fillna("") == "")
+            # Only numerical logic is used; Justification does not hide errors
+            mask = (df[sc] > df[r]) | ((df[r] - df[sc]) > 200)
             df.loc[mask, 'Total_Errors'] = 1
 
     st.title("🌱 Nursery Quality Control & Correction Dashboard")
@@ -66,8 +67,8 @@ if not df.empty:
     
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Records", total_recs)
-    col2.metric("Active Errors", int(active_errors))
-    col3.metric("Justified Records", int(df['Justification'].replace("", None).count()))
+    col2.metric("Total Errors Found", int(active_errors))
+    col3.metric("Records Justified", int(df['Justification'].replace("", None).count()))
     col4.metric("Data Accuracy Rate", f"{accuracy_rate:.2f}%")
 
     # 3. FILTERS
@@ -109,9 +110,9 @@ if not df.empty:
             else:
                 st.error("Failed to save to GitHub.")
     else:
-        st.success("No active errors in this selection.")
+        st.success("No numerical errors found in this selection.")
 
-    # 6. COMPARISON ANALYSIS (Error Contribution)
+    # 6. COMPARISON ANALYSIS (Percentage Contribution)
     st.divider()
     st.subheader("📊 Comparison Analysis (Error Volume Contribution)")
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
@@ -136,3 +137,4 @@ if not df.empty:
 
 else:
     st.warning("Data not loaded.")
+    
