@@ -8,90 +8,84 @@ import io
 GITHUB_OWNER = "Derese4803"
 GITHUB_REPO = "Nursery-Data-Analysis-" 
 CSV_FILENAME = "amhara_me_2026.csv"
+GITHUB_TOKEN = st.secrets["github"]["token"]
 
 st.set_page_config(page_title="Nursery QC & Correction Dashboard", layout="wide")
 
 @st.cache_data(ttl=60)
-def fetch_and_clean_data():
-    token = st.secrets.get("github", {}).get("token")
-    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+def fetch_data():
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
-    
-    response = requests.get(url, headers=headers, timeout=15)
+    response = requests.get(url, headers=headers)
     if response.status_code == 200:
         content = base64.b64decode(response.json()['content']).decode('utf-8')
         df = pd.read_csv(io.StringIO(content))
-        # Ensure Justification column exists
         if 'Justification' not in df.columns:
             df['Justification'] = ""
-        return df
-    return pd.DataFrame()
+        return df, response.json()['sha']
+    return pd.DataFrame(), None
+
+def save_to_github(df, sha):
+    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
+    csv_content = df.to_csv(index=False).encode('utf-8')
+    data = {
+        "message": "Update data and justifications",
+        "content": base64.b64encode(csv_content).decode('utf-8'),
+        "sha": sha
+    }
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    return requests.put(url, json=data, headers=headers)
 
 # --- INTERFACE ---
 st.title("🌱 Nursery Quality Control & Correction Dashboard")
-df = fetch_and_clean_data()
+df, file_sha = fetch_data()
 
 if not df.empty:
-    # 1. PRE-CALCULATE ERRORS
+    # 1. PRE-CALCULATE ERRORS (Excluded if Justification is provided)
     species_list = ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']
     df['Total_Errors'] = 0
     for s in species_list:
-        ready_c, seed_c = f"{s} Count Ready", f"{s} Ready Seedling"
-        if ready_c in df.columns and seed_c in df.columns:
-            df[ready_c] = pd.to_numeric(df[ready_c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            df[seed_c] = pd.to_numeric(df[seed_c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            
-            # Logic: Flag as error ONLY if it fails the check AND has no justification
-            error_condition = (df[seed_c] > df[ready_c]) | ((df[ready_c] - df[seed_c]) > 200)
-            justified_condition = df['Justification'].notna() & (df['Justification'] != "")
-            
-            error_mask = error_condition & ~justified_condition
-            df.loc[error_mask, 'Total_Errors'] += 1
+        r, sc = f"{s} Count Ready", f"{s} Ready Seedling"
+        if r in df.columns and sc in df.columns:
+            df[r] = pd.to_numeric(df[r].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            df[sc] = pd.to_numeric(df[sc].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            # Flag error ONLY if check fails AND justification is empty
+            mask = ((df[sc] > df[r]) | ((df[r] - df[sc]) > 200)) & (df['Justification'].fillna("") == "")
+            df.loc[mask, 'Total_Errors'] = 1
 
-    # 2. Hierarchical Filters
+    # 2. Filters
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
     zone = col_f1.selectbox("Zone", ["All"] + sorted(df["Zone"].unique().tolist()))
     df_f = df if zone == "All" else df[df["Zone"] == zone]
-    
     cluster = col_f2.selectbox("Cluster", ["All"] + sorted(df_f["Cluster"].unique().tolist()))
     df_f = df_f if cluster == "All" else df_f[df_f["Cluster"] == cluster]
-    
     woreda = col_f3.selectbox("Woreda", ["All"] + sorted(df_f["Woreda"].unique().tolist()))
     df_f = df_f if woreda == "All" else df_f[df_f["Woreda"] == woreda]
-    
     kebele = col_f4.selectbox("Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
     df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
 
-    # 3. Global Metrics & Trends
-    st.metric("Total Records with QC Errors", int(df_f['Total_Errors'].sum()))
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("Error Distribution by Woreda")
-        st.bar_chart(df_f.groupby("Woreda")['Total_Errors'].sum())
-    with c2:
-        st.subheader("Error Trend by Kebele")
-        st.line_chart(df_f.groupby("Kebele")['Total_Errors'].sum())
+    # 3. Correction & Justification Center
+    st.divider()
+    st.subheader(f"🛠 Correction & Justification Center")
+    error_df = df_f[df_f['Total_Errors'] > 0]
+    
+    if not error_df.empty:
+        st.warning("Edit values (Correction) or provide a 'Justification' to clear the flag:")
+        edited_df = st.data_editor(error_df, use_container_width=True)
+        if st.button("Save Changes to GitHub"):
+            df.update(edited_df)
+            res = save_to_github(df, file_sha)
+            if res.status_code == 200:
+                st.success("Changes saved! Justified records will now be excluded from error counts.")
+                st.rerun()
+            else:
+                st.error("Failed to save to GitHub.")
+    else:
+        st.success("No active errors found.")
 
-    # 4. Species Analysis & Correction
-    if kebele != "All":
-        st.divider()
-        st.subheader(f"Detailed Species QC: {kebele}")
-        # (Species data processing same as before)
-        
-        st.subheader(f"🛠 Correction & Justification: {kebele}")
-        error_df = df_f[df_f['Total_Errors'] > 0]
-        if not error_df.empty:
-            st.warning("Edit values or provide a Justification to clear the error flag:")
-            # Users can now fill the Justification column here
-            edited_df = st.data_editor(error_df, use_container_width=True)
-        else:
-            st.success("No active errors in this Kebele!")
-
-    # 5. Comparison Analysis
+    # 4. Comparison Analysis
     st.divider()
     st.subheader("📊 Comparison Analysis (Priority Ranking)")
-    st.info("Areas are ranked by actual Error Rate (Total Errors / Total Records) %.")
-    
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
     sel_items = st.multiselect(f"Select {comp_type}s to Compare", sorted(df[comp_type].unique().tolist()))
     
@@ -103,14 +97,7 @@ if not df.empty:
         summary['Total Records'] = grouped['count']
         summary['Error Rate %'] = ((summary['Total Errors'] / summary['Total Records']) * 100).round(2)
         summary = summary.sort_values(by='Error Rate %', ascending=False)
-        
-        c_a, c_b = st.columns(2)
-        c_a.bar_chart(summary[['Error Rate %']])
-        c_b.bar_chart(summary[['Total Errors']])
         st.dataframe(summary, use_container_width=True)
-
-    st.subheader("Full Flagged Records")
-    st.dataframe(df_f[df_f['Total_Errors'] > 0], use_container_width=True)
 
 else:
     st.warning("Data not loaded.")
