@@ -59,7 +59,7 @@ if not df.empty:
 
     st.title("🌱 Nursery Quality Control & Correction Dashboard")
 
-    # 2. OVERALL DATA ANALYSIS
+    # 2. OVERALL DATA ANALYSIS METRICS
     total_recs = len(df)
     active_errors = df['Total_Errors'].sum()
     accuracy_rate = ((total_recs - active_errors) / total_recs * 100) if total_recs > 0 else 0
@@ -92,11 +92,10 @@ if not df.empty:
     c3.caption("Error Distribution by Woreda (Bar)")
     c3.bar_chart(df_f.groupby("Woreda")['Total_Errors'].sum())
 
-    # 5. CORRECTION & JUSTIFICATION CENTER
+    # 5. CORRECTION CENTER
     st.divider()
     st.subheader("🛠 Correction & Justification Center")
     error_df = df_f[df_f['Total_Errors'] > 0]
-    
     if not error_df.empty:
         edited_df = st.data_editor(error_df, key="editor", use_container_width=True)
         if st.button("Save Changes to GitHub"):
@@ -106,12 +105,10 @@ if not df.empty:
             if res.status_code == 200:
                 st.success("Changes saved! Refreshing...")
                 st.rerun()
-            else:
-                st.error("Failed to save to GitHub.")
     else:
         st.success("No active errors in this selection.")
 
-    # 6. COMPARISON ANALYSIS
+    # 6. COMPARISON ANALYSIS (WITH NEW GRAPH)
     st.divider()
     st.subheader("📊 Comparison Analysis (Priority Ranking)")
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
@@ -121,12 +118,11 @@ if not df.empty:
         df_comp = df[df[comp_type].isin(sel_items)]
         grouped = df_comp.groupby(comp_type)['Total_Errors'].agg(['sum', 'count'])
         summary = pd.DataFrame()
-        summary['Total Errors'] = grouped['sum']
-        summary['Total Records'] = grouped['count']
-        summary['Error Rate %'] = ((summary['Total Errors'] / summary['Total Records']) * 100).fillna(0).round(2)
+        summary['Error Rate %'] = ((grouped['sum'] / grouped['count']) * 100).fillna(0).round(2)
+        
+        # Display Bar Chart for Comparison
+        st.bar_chart(summary['Error Rate %'])
+        # Display Table
         st.dataframe(summary.sort_values(by='Error Rate %', ascending=False), use_container_width=True)
     else:
         st.info("Select items above to see priority ranking.")
-
-else:
-    st.warning("Data not loaded.")
