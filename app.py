@@ -54,9 +54,16 @@ if not df.empty:
     kebele = col_f4.selectbox("Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
     df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
 
-    # 3. Global Metrics
+    # 3. Global Metrics & Trends
     st.metric("Total Records with QC Errors", int(df_f['Total_Errors'].sum()))
-    
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("Error Distribution by Woreda")
+        st.bar_chart(df_f.groupby("Woreda")['Total_Errors'].sum())
+    with c2:
+        st.subheader("Error Trend by Kebele")
+        st.line_chart(df_f.groupby("Kebele")['Total_Errors'].sum())
+
     # 4. Species Analysis & Correction
     if kebele != "All":
         st.divider()
@@ -73,21 +80,21 @@ if not df.empty:
         error_df = df_f[df_f['Total_Errors'] > 0]
         if not error_df.empty:
             st.warning("Edit the values below to fix flagged records:")
-            st.data_editor(error_df, use_container_width=True)
+            edited_df = st.data_editor(error_df, use_container_width=True)
         else:
             st.success("No errors detected in this Kebele!")
 
     # 5. Comparison Analysis (Accurate Percentage Ranking)
     st.divider()
     st.subheader("📊 Comparison Analysis (Priority Ranking)")
-    st.info("Areas are ranked by the actual Error Rate (Total Errors / Total Records) %.")
+    st.info("Areas are ranked by actual Error Rate (Total Errors / Total Records) %.")
     
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
     sel_items = st.multiselect(f"Select {comp_type}s to Compare", sorted(df[comp_type].unique().tolist()))
     
     if sel_items:
         df_comp = df[df[comp_type].isin(sel_items)]
-        # Group to get total errors and total records count per area
+        # Aggregation: sum errors and count records
         grouped = df_comp.groupby(comp_type)['Total_Errors'].agg(['sum', 'count'])
         
         summary = pd.DataFrame()
@@ -96,7 +103,7 @@ if not df.empty:
         # Calculate true Error Rate %
         summary['Error Rate %'] = ((summary['Total Errors'] / summary['Total Records']) * 100).round(2)
         
-        # Sort by highest Error Rate % so priority areas appear at the top
+        # Sort by Error Rate % descending
         summary = summary.sort_values(by='Error Rate %', ascending=False)
         
         c_a, c_b = st.columns(2)
