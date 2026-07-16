@@ -43,18 +43,28 @@ if 'data' not in st.session_state:
     st.session_state.data = df_load
     st.session_state.sha = sha_load
 
+# Force Refresh Button
+if st.sidebar.button("🔄 Force Refresh Data"):
+    st.cache_data.clear()
+    df_load, sha_load = fetch_data()
+    st.session_state.data = df_load
+    st.session_state.sha = sha_load
+    st.rerun()
+
 df = st.session_state.data
 
 if not df.empty:
-    # 1. PRE-CALCULATE ERRORS (Ignores Justification, counts all numerical discrepancies)
+    # 1. HARD RE-CALCULATE ERRORS (Ignore Justification)
     species_list = ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']
-    df['Total_Errors'] = 0
+    df['Total_Errors'] = 0 
+    
     for s in species_list:
         r, sc = f"{s} Count Ready", f"{s} Ready Seedling"
         if r in df.columns and sc in df.columns:
+            # Clean and convert to numeric to ensure accurate comparison
             df[r] = pd.to_numeric(df[r].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             df[sc] = pd.to_numeric(df[sc].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            # Only numerical logic is used; Justification does not hide errors
+            # Flag error if seedling count is greater than expected, or if gap > 200
             mask = (df[sc] > df[r]) | ((df[r] - df[sc]) > 200)
             df.loc[mask, 'Total_Errors'] = 1
 
@@ -86,11 +96,8 @@ if not df.empty:
     # 4. VISUAL ANALYSIS
     st.subheader("📊 Performance & Error Analytics")
     c1, c2, c3 = st.columns(3)
-    c1.caption("Error Distribution by Cluster (Bar)")
     c1.bar_chart(df_f.groupby("Cluster")['Total_Errors'].sum())
-    c2.caption("Error Trend by Zone (Line)")
     c2.line_chart(df_f.groupby("Zone")['Total_Errors'].sum())
-    c3.caption("Error Distribution by Woreda (Bar)")
     c3.bar_chart(df_f.groupby("Woreda")['Total_Errors'].sum())
 
     # 5. CORRECTION & JUSTIFICATION CENTER
@@ -107,12 +114,10 @@ if not df.empty:
             if res.status_code == 200:
                 st.success("Changes saved! Refreshing...")
                 st.rerun()
-            else:
-                st.error("Failed to save to GitHub.")
     else:
-        st.success("No numerical errors found in this selection.")
+        st.success("No errors found in this selection.")
 
-    # 6. COMPARISON ANALYSIS (Percentage Contribution)
+    # 6. COMPARISON ANALYSIS
     st.divider()
     st.subheader("📊 Comparison Analysis (Error Volume Contribution)")
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
@@ -120,10 +125,8 @@ if not df.empty:
     
     if sel_items:
         df_comp = df[df[comp_type].isin(sel_items)]
-        # Group by the category and sum the error count
         summary = df_comp.groupby(comp_type)['Total_Errors'].sum().reset_index()
         summary.columns = [comp_type, 'Total Errors']
-        
         total_errors_selected = summary['Total Errors'].sum()
         
         if total_errors_selected > 0:
@@ -131,10 +134,7 @@ if not df.empty:
             st.bar_chart(summary.set_index(comp_type)['Error Contribution %'])
             st.dataframe(summary.sort_values(by='Error Contribution %', ascending=False), use_container_width=True)
         else:
-            st.info("No errors found in the selected items.")
-    else:
-        st.info("Select items above to see error volume comparison.")
+            st.info("No errors in selection.")
 
 else:
     st.warning("Data not loaded.")
-    
