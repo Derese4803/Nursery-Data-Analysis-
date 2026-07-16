@@ -40,7 +40,7 @@ def save_to_github(df, sha):
 df, file_sha = fetch_data()
 
 if not df.empty:
-    # 1. PRE-CALCULATE ERRORS (Excluded if Justification is provided)
+    # 1. PRE-CALCULATE ERRORS
     species_list = ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']
     df['Total_Errors'] = 0
     for s in species_list:
@@ -51,7 +51,22 @@ if not df.empty:
             mask = ((df[sc] > df[r]) | ((df[r] - df[sc]) > 200)) & (df['Justification'].fillna("") == "")
             df.loc[mask, 'Total_Errors'] = 1
 
-    # 2. Hierarchical Filters
+    st.title("🌱 Nursery Quality Control & Correction Dashboard")
+
+    # 2. OVERALL DATA ANALYSIS DASHBOARD
+    st.subheader("📈 Overall Nursery Data Analysis")
+    col1, col2, col3, col4 = st.columns(4)
+    total_recs = len(df)
+    active_errors = df['Total_Errors'].sum()
+    justified = df['Justification'].replace("", None).count()
+    corrected_rate = ((1 - (active_errors / total_recs)) * 100)
+    
+    col1.metric("Total Records", total_recs)
+    col2.metric("Active Errors", active_errors)
+    col3.metric("Justified Records", justified)
+    col4.metric("Data Accuracy Rate", f"{corrected_rate:.2f}%")
+
+    # 3. FILTERS & VISUALIZATION
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
     zone = col_f1.selectbox("Zone", ["All"] + sorted(df["Zone"].unique().tolist()))
     df_f = df if zone == "All" else df[df["Zone"] == zone]
@@ -62,53 +77,33 @@ if not df.empty:
     kebele = col_f4.selectbox("Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
     df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
 
-    # 3. Visual Analysis
-    st.title("🌱 Nursery Quality Control & Correction Dashboard")
-    st.metric("Total Active QC Errors", int(df_f['Total_Errors'].sum()))
-    
-    st.subheader("📊 Performance & Error Analytics")
     c1, c2, c3 = st.columns(3)
-    with c1:
-        st.caption("Error Distribution by Cluster (Bar)")
-        st.bar_chart(df_f.groupby("Cluster")['Total_Errors'].sum())
-    with c2:
-        st.caption("Error Trend by Zone (Line)")
-        st.line_chart(df_f.groupby("Zone")['Total_Errors'].sum())
-    with c3:
-        st.caption("Error Distribution by Woreda (Bar)")
-        st.bar_chart(df_f.groupby("Woreda")['Total_Errors'].sum())
+    c1.caption("Error Distribution by Cluster (Bar)")
+    c1.bar_chart(df_f.groupby("Cluster")['Total_Errors'].sum())
+    c2.caption("Error Trend by Zone (Line)")
+    c2.line_chart(df_f.groupby("Zone")['Total_Errors'].sum())
+    c3.caption("Error Distribution by Woreda (Bar)")
+    c3.bar_chart(df_f.groupby("Woreda")['Total_Errors'].sum())
 
-    # 4. Correction & Justification Center
+    # 4. CORRECTION & JUSTIFICATION CENTER
     st.divider()
     st.subheader("🛠 Correction & Justification Center")
     error_df = df_f[df_f['Total_Errors'] > 0]
-    
     if not error_df.empty:
         edited_df = st.data_editor(error_df, use_container_width=True)
         if st.button("Save Changes to GitHub"):
             df.update(edited_df)
             res = save_to_github(df, file_sha)
             if res.status_code == 200:
-                st.success("Changes saved! Justified records are now excluded.")
+                st.success("Changes saved! Refreshing data...")
                 st.rerun()
     else:
-        st.success("No active errors found in this selection.")
+        st.success("No active errors in this selection.")
 
-    # 5. Comparison Analysis (Priority Ranking)
+    # 5. FULL DATA VIEW
     st.divider()
-    st.subheader("📊 Comparison Analysis (Priority Ranking)")
-    comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
-    sel_items = st.multiselect(f"Select {comp_type}s to Compare", sorted(df[comp_type].unique().tolist()))
-    
-    if sel_items:
-        df_comp = df[df[comp_type].isin(sel_items)]
-        grouped = df_comp.groupby(comp_type)['Total_Errors'].agg(['sum', 'count'])
-        summary = pd.DataFrame()
-        summary['Total Errors'] = grouped['sum']
-        summary['Total Records'] = grouped['count']
-        summary['Error Rate %'] = ((summary['Total Errors'] / summary['Total Records']) * 100).round(2)
-        summary = summary.sort_values(by='Error Rate %', ascending=False)
-        st.dataframe(summary, use_container_width=True)
+    st.subheader("📋 Full Data Records")
+    st.dataframe(df_f, use_container_width=True)
 
 else:
     st.warning("Data not loaded.")
