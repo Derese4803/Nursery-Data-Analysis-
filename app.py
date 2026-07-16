@@ -10,7 +10,7 @@ GITHUB_REPO = "Nursery-Data-Analysis-"
 CSV_FILENAME = "amhara_me_2026.csv"
 GITHUB_TOKEN = st.secrets["github"]["token"]
 
-st.set_page_config(page_title="Nursery QC Dashboard", layout="wide")
+st.set_page_config(page_title="Nursery QC & Correction Dashboard", layout="wide")
 
 # --- DATA FUNCTIONS ---
 @st.cache_data(ttl=60)
@@ -37,7 +37,7 @@ def save_to_github(df, sha):
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     return requests.put(url, json=data, headers=headers)
 
-# --- SESSION STATE ---
+# --- SESSION STATE INITIALIZATION ---
 if 'data' not in st.session_state:
     df_load, sha_load = fetch_data()
     st.session_state.data = df_load
@@ -46,7 +46,7 @@ if 'data' not in st.session_state:
 df = st.session_state.data
 
 if not df.empty:
-    # 1. ERROR CALCULATION (Apply to the FULL dataframe)
+    # 1. PRE-CALCULATE ERRORS
     species_list = ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']
     df['Total_Errors'] = 0
     for s in species_list:
@@ -57,16 +57,18 @@ if not df.empty:
             mask = ((df[sc] > df[r]) | ((df[r] - df[sc]) > 200)) & (df['Justification'].fillna("") == "")
             df.loc[mask, 'Total_Errors'] = 1
 
-    st.title("🌱 Nursery Quality Control Dashboard")
+    st.title("🌱 Nursery Quality Control & Correction Dashboard")
 
-    # 2. METRICS
-    col1, col2, col3, col4 = st.columns(4)
+    # 2. OVERALL DATA ANALYSIS
     total_recs = len(df)
     active_errors = df['Total_Errors'].sum()
+    accuracy_rate = ((total_recs - active_errors) / total_recs * 100) if total_recs > 0 else 0
+    
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Records", total_recs)
     col2.metric("Active Errors", int(active_errors))
-    col3.metric("Justified", int(df['Justification'].replace("", None).count()))
-    col4.metric("Accuracy Rate", f"{((total_recs - active_errors)/total_recs*100):.2f}%")
+    col3.metric("Justified Records", int(df['Justification'].replace("", None).count()))
+    col4.metric("Data Accuracy Rate", f"{accuracy_rate:.2f}%")
 
     # 3. FILTERS
     st.divider()
@@ -80,34 +82,57 @@ if not df.empty:
     kebele = col_f4.selectbox("Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
     df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
 
-    # 4. CORRECTION CENTER
+    # 4. VISUAL ANALYSIS
+    st.subheader("📊 Performance & Error Analytics")
+    c1, c2, c3 = st.columns(3)
+    c1.caption("Error Distribution by Cluster (Bar)")
+    c1.bar_chart(df_f.groupby("Cluster")['Total_Errors'].sum())
+    c2.caption("Error Trend by Zone (Line)")
+    c2.line_chart(df_f.groupby("Zone")['Total_Errors'].sum())
+    c3.caption("Error Distribution by Woreda (Bar)")
+    c3.bar_chart(df_f.groupby("Woreda")['Total_Errors'].sum())
+
+    # 5. CORRECTION & JUSTIFICATION CENTER
+    st.divider()
     st.subheader("🛠 Correction & Justification Center")
     error_df = df_f[df_f['Total_Errors'] > 0]
+    
     if not error_df.empty:
         edited_df = st.data_editor(error_df, key="editor", use_container_width=True)
         if st.button("Save Changes to GitHub"):
             df.update(edited_df)
             st.session_state.data = df
-            if save_to_github(df, st.session_state.sha).status_code == 200:
+            res = save_to_github(df, st.session_state.sha)
+            if res.status_code == 200:
                 st.success("Changes saved! Refreshing...")
                 st.rerun()
     else:
-        st.info("No active errors in this selection.")
+        st.success("No active errors in this selection.")
 
-    # 5. COMPARISON ANALYSIS (FIXED CALCULATION)
+    # 6. COMPARISON ANALYSIS (Percentage Contribution)
     st.divider()
-    st.subheader("📊 Comparative Priority Ranking")
+    st.subheader("📊 Comparison Analysis (Error Volume Contribution)")
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
     sel_items = st.multiselect(f"Select {comp_type}s to Compare", sorted(df[comp_type].unique().tolist()))
     
     if sel_items:
-        # Group the FULL dataframe (df), NOT just the error subset
         df_comp = df[df[comp_type].isin(sel_items)]
-        summary = df_comp.groupby(comp_type)['Total_Errors'].agg(['sum', 'count'])
-        summary.columns = ['Error Count', 'Total Records']
-        summary['Error Rate %'] = ((summary['Error Count'] / summary['Total Records']) * 100).round(2)
+        # Sum errors per group
+        summary = df_comp.groupby(comp_type)['Total_Errors'].sum().reset_index()
+        summary.columns = [comp_type, 'Total Errors']
         
-        st.bar_chart(summary['Error Rate %'])
-        st.dataframe(summary.sort_values(by='Error Rate %', ascending=False), use_container_width=True)
+        # Calculate Percentage Contribution
+        total_in_sel = summary['Total Errors'].sum()
+        if total_in_sel > 0:
+            summary['Error Contribution %'] = ((summary['Total Errors'] / total_in_sel) * 100).round(2)
+            
+            # Show Chart & Table
+            st.bar_chart(summary.set_index(comp_type)['Error Contribution %'])
+            st.dataframe(summary.sort_values(by='Error Contribution %', ascending=False), use_container_width=True)
+        else:
+            st.info("No errors found in the selected items.")
     else:
-        st.info("Select items to generate comparison analysis.")
+        st.info("Select items above to see error volume comparison.")
+
+else:
+    st.warning("Data not loaded.")
