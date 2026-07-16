@@ -28,50 +28,55 @@ def fetch_data():
             content = base64.b64decode(response.json()['content']).decode('utf-8')
             return pd.read_csv(io.StringIO(content))
         else:
-            st.error(f"GitHub Error {response.status_code}: Check repo name or file path.")
+            st.error(f"Error {response.status_code}: Check repo name or file path.")
             return pd.DataFrame()
     except Exception as e:
         st.error(f"Connection Error: {e}")
         return pd.DataFrame()
 
-# --- INTERFACE ---
+# --- APP INTERFACE ---
 st.title("🌱 Nursery-Data-Analysis")
 df = fetch_data()
 
 if not df.empty:
-    st.sidebar.header("Hierarchical Filters")
+    st.sidebar.header("Filter Data")
     
-    # 1. Zone
-    zones = ["All"] + sorted(df["Zone"].unique().tolist())
-    sel_zone = st.sidebar.selectbox("1. Select Zone", zones)
-    df_f = df if sel_zone == "All" else df[df["Zone"] == sel_zone]
+    # 1. Hierarchical Location Filtering
+    zone = st.sidebar.selectbox("Select Zone", ["All"] + sorted(df["Zone"].unique().tolist()))
+    df_f = df if zone == "All" else df[df["Zone"] == zone]
     
-    # 2. Woreda
-    woredas = ["All"] + sorted(df_f["Woreda"].unique().tolist())
-    sel_woreda = st.sidebar.selectbox("2. Select Woreda", woredas)
-    df_f = df_f if sel_woreda == "All" else df_f[df_f["Woreda"] == sel_woreda]
+    woreda = st.sidebar.selectbox("Select Woreda", ["All"] + sorted(df_f["Woreda"].unique().tolist()))
+    df_f = df_f if woreda == "All" else df_f[df_f["Woreda"] == woreda]
     
-    # 3. Kebele
-    kebeles = ["All"] + sorted(df_f["Kebele"].unique().tolist())
-    sel_kebele = st.sidebar.selectbox("3. Select Kebele", kebeles)
-    df_f = df_f if sel_kebele == "All" else df_f[df_f["Kebele"] == sel_kebele]
+    kebele = st.sidebar.selectbox("Select Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
+    df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
+    
+    # 2. Species Selector
+    # Automatically extracts unique species (e.g., 'Gesho', 'Arzelibano') from column names
+    all_columns = [c.split(' ')[0] for c in df.columns if ' ' in c]
+    species_list = sorted(list(set(all_columns)))
+    sel_species = st.selectbox("Select Species", species_list)
     
     st.divider()
     
-    # 4. Species Analysis
-    species_list = sorted(list(set([c.split(' ')[0] for c in df.columns if ' ' in c])))
-    sel_species = st.selectbox("Select Species for Metric Analysis", species_list)
+    # 3. Dynamic Aggregation
+    st.subheader(f"Results: {sel_species} in {kebele}, {woreda}")
     
-    st.subheader(f"Results: {sel_species} in {sel_kebele}, {sel_woreda}")
-    
-    # Dynamically find columns
+    # Filter columns that belong to the selected species
     cols_to_sum = [c for c in df.columns if c.startswith(sel_species)]
+    
     if cols_to_sum:
+        # Calculate sums
         metrics = df_f[cols_to_sum].sum()
+        
+        # Display as metric cards
         cols = st.columns(len(metrics))
         for i, (name, val) in enumerate(metrics.items()):
-            cols[i].metric(name.replace(f"{sel_species} ", ""), int(val))
+            clean_name = name.replace(f"{sel_species} ", "")
+            cols[i].metric(clean_name, f"{int(val):,}")
+    else:
+        st.info("No data columns found for this species.")
     
     st.dataframe(df_f, use_container_width=True)
 else:
-    st.warning("Data not found. Please verify the CSV path and your GitHub token permissions.")
+    st.warning("No data loaded. Check repository name and CSV path.")
