@@ -9,7 +9,7 @@ GITHUB_OWNER = "Derese4803"
 GITHUB_REPO = "Nursery-Data-Analysis-" 
 CSV_FILENAME = "amhara_me_2026.csv"
 
-st.set_page_config(page_title="QC Analysis", layout="wide")
+st.set_page_config(page_title="QC Dashboard", layout="wide")
 
 @st.cache_data(ttl=60)
 def fetch_and_clean_data():
@@ -22,20 +22,14 @@ def fetch_and_clean_data():
         content = base64.b64decode(response.json()['content']).decode('utf-8')
         df = pd.read_csv(io.StringIO(content))
         
-        # Error Detection
+        # Error Detection Logic
         species_list = ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']
         df['Error_Flag'] = 0
-        
         for s in species_list:
-            ready_col = f"{s} Count Ready"
-            seedling_col = f"{s} Ready Seedling"
-            
+            ready_col, seedling_col = f"{s} Count Ready", f"{s} Ready Seedling"
             if ready_col in df.columns and seedling_col in df.columns:
                 df[ready_col] = pd.to_numeric(df[ready_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
                 df[seedling_col] = pd.to_numeric(df[seedling_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-                
-                # Rule 1: Ready Seedling > Count Ready
-                # Rule 2: (Count Ready - Ready Seedling) > 200
                 error_mask = (df[seedling_col] > df[ready_col]) | ((df[ready_col] - df[seedling_col]) > 200)
                 df.loc[error_mask, 'Error_Flag'] += 1
         return df
@@ -46,26 +40,41 @@ st.title("🌱 Nursery Quality Control Dashboard")
 df = fetch_and_clean_data()
 
 if not df.empty:
-    # Sidebar Filters
-    zone = st.sidebar.selectbox("Zone", ["All"] + sorted(df["Zone"].unique().tolist()))
+    # Hierarchical Filters
+    st.sidebar.header("Navigation")
+    
+    # 1. Zone
+    zone = st.sidebar.selectbox("Select Zone", ["All"] + sorted(df["Zone"].unique().tolist()))
     df_f = df if zone == "All" else df[df["Zone"] == zone]
-    cluster = st.sidebar.selectbox("Cluster", ["All"] + sorted(df_f["Cluster"].unique().tolist()))
+    
+    # 2. Cluster
+    cluster = st.sidebar.selectbox("Select Cluster", ["All"] + sorted(df_f["Cluster"].unique().tolist()))
     df_f = df_f if cluster == "All" else df_f[df_f["Cluster"] == cluster]
-    woreda = st.sidebar.selectbox("Woreda", ["All"] + sorted(df_f["Woreda"].unique().tolist()))
+    
+    # 3. Woreda
+    woreda = st.sidebar.selectbox("Select Woreda", ["All"] + sorted(df_f["Woreda"].unique().tolist()))
     df_f = df_f if woreda == "All" else df_f[df_f["Woreda"] == woreda]
+    
+    # 4. Kebele
+    kebele = st.sidebar.selectbox("Select Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
+    df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
 
     # Metrics
-    st.metric("Total Records with Errors", int(df_f['Error_Flag'].sum()))
+    st.metric("Total Flagged Records", int(df_f['Error_Flag'].sum()))
     
-    # Graphs
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("Error Count by Woreda")
-        st.bar_chart(df_f.groupby("Woreda")['Error_Flag'].sum())
-    with col_b:
-        st.subheader("Error Trend by Kebele")
+    # Dynamic Charts
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Error Distribution (Bar)")
+        # If a Kebele is selected, it shows the error status for that Kebele; 
+        # otherwise, it groups by the next available hierarchy.
+        group_by = "Kebele" if kebele == "All" else "Woreda"
+        st.bar_chart(df_f.groupby(group_by)['Error_Flag'].sum())
+        
+    with col2:
+        st.subheader("Error Trend (Line)")
         st.line_chart(df_f.groupby("Kebele")['Error_Flag'].sum())
         
     st.dataframe(df_f[df_f['Error_Flag'] > 0], use_container_width=True)
 else:
-    st.warning("Data not found.")
+    st.warning("Data not loaded.")
