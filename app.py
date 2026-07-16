@@ -5,96 +5,221 @@ import datetime
 import io
 import requests
 
-# CONFIG
+# ============================================================================
+# GITHUB ENVIRONMENT CONFIGURATION
+# ============================================================================
 GITHUB_OWNER = "Derese4803"
 GITHUB_REPO = "control-sample-collction"
 CSV_FILENAME = "amhara_me_2026.csv"
 
-# --- CORE LOGIC ---
+# ============================================================================
+# CLOUD DATABASE STORAGE CORE LOGIC (GITHUB API)
+# ============================================================================
 def get_github_headers():
     token = st.secrets.get("github", {}).get("token")
-    return {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"} if token else None
+    if not token:
+        st.error("❌ GitHub token missing in .streamlit/secrets.toml!")
+        return None
+    return {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
 
 def fetch_data_from_github() -> pd.DataFrame:
     headers = get_github_headers()
+    if not headers: 
+        return pd.DataFrame()
+    
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
     try:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             content = base64.b64decode(response.json()['content']).decode('utf-8')
             return pd.read_csv(io.StringIO(content))
-    except: pass
+    except Exception as e:
+        st.error(f"Error fetching data: {str(e)}")
+        
     return pd.DataFrame()
 
 def save_data_to_github(updated_df: pd.DataFrame) -> bool:
     headers = get_github_headers()
+    if not headers: 
+        return False
+    
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
-    res_get = requests.get(url, headers=headers)
-    sha = res_get.json()['sha'] if res_get.status_code == 200 else None
+    
+    response = requests.get(url, headers=headers)
+    sha = response.json()['sha'] if response.status_code == 200 else None
+    
     csv_data = updated_df.to_csv(index=False)
-    payload = {"message": "Nursery Data Sync", "content": base64.b64encode(csv_data.encode()).decode(), "branch": "main"}
-    if sha: payload["sha"] = sha
-    return requests.put(url, headers=headers, json=payload).status_code in [200, 201]
+    encoded_data = base64.b64encode(csv_data.encode()).decode()
+    
+    payload = {
+        "message": f"Nursery Sync - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "content": encoded_data,
+        "branch": "main"  
+    }
+    if sha: 
+        payload["sha"] = sha
+        
+    try:
+        res = requests.put(url, headers=headers, json=payload, timeout=10)
+        return res.status_code in [200, 201]
+    except Exception as e:
+        st.error(f"Network error during upload: {str(e)}")
+        return False
 
-# --- SESSION STATE ---
+# ============================================================================
+# STATE ROUTING MANAGEMENT
+# ============================================================================
 if "page" not in st.session_state: st.session_state["page"] = "Home"
-if "editor" not in st.session_state: st.session_state["editor"] = None
 if "auth" not in st.session_state: st.session_state["auth"] = False
 
-def nav(p): st.session_state["page"] = p; st.rerun()
+def nav(p):
+    st.session_state["page"] = p
+    st.rerun()
 
-# --- UI ---
+# ============================================================================
+# INTERFACE CONFIGURATION
+# ============================================================================
 st.set_page_config(page_title="Nursery-Data-Analysis", layout="wide")
 
+# ============================================================================
+# INTERFACE: HOME SCREEN
+# ============================================================================
 if st.session_state["page"] == "Home":
     st.title("🌱 Nursery-Data-Analysis")
-    if st.session_state["editor"]: st.success(f"👤 Active Agent: {st.session_state['editor']}")
-    c1, c2 = st.columns(2)
-    if c1.button("📝 NEW REGISTRATION"): nav("Reg")
-    if c2.button("📊 ADMIN DASHBOARD"): nav("Data")
+    st.divider()
+    col1, col2 = st.columns(2)
+    if col1.button("📝 NEW REGISTRATION", use_container_width=True, type="primary"): 
+        nav("Reg")
+    if col2.button("📊 ADMIN DASHBOARD", use_container_width=True): 
+        nav("Data")
 
+# ============================================================================
+# INTERFACE: REGISTRATION FORM
+# ============================================================================
 elif st.session_state["page"] == "Reg":
-    st.button("⬅️ Back", on_click=lambda: nav("Home"))
-    if not st.session_state["editor"]:
-        name_in = st.text_input("Enter your Full Name to begin:")
-        if st.button("Initialize Session") and name_in: st.session_state["editor"] = name_in; st.rerun()
-    else:
-        with st.form("nursery_form"):
-            f_name = st.text_input("Farmer Name")
-            woreda = st.text_input("Woreda Zone")
-            kebele = st.text_input("Kebele Locality")
-            # Gesho Fields
-            ready = st.number_input("Gesho Count Ready", 0)
-            non_ready = st.number_input("Gesho Count Non Ready", 0)
-            healthy = st.number_input("Gesho Healthy Seeding", 0)
-            
-            if st.form_submit_button("Submit Data"):
-                df = fetch_data_from_github()
-                new_entry = pd.DataFrame([{
-                    "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "user-name": st.session_state["editor"],
-                    "Farmer Name": f_name, "Woreda Zone": woreda, "Kebele Locality": kebele,
-                    "Gesho Count Ready": ready, "Gesho Count Non Ready": non_ready, "Gesho Healthy Seeding": healthy
-                }])
-                if save_data_to_github(pd.concat([df, new_entry], ignore_index=True)): st.success("Data Synced Successfully!")
+    st.button("⬅️ Back to Home Layout", on_click=lambda: nav("Home"))
+    
+    st.header("📝 New Nursery Entry")
+    with st.form("nursery_form", clear_on_submit=True):
+        
+        st.subheader("1. Location Details")
+        col1, col2 = st.columns(2)
+        zone = col1.text_input("Zone")
+        woreda = col2.text_input("Woreda")
+        kebele = col1.text_input("Kebele")
+        cluster = col2.text_input("Cluster")
+        
+        st.subheader("2. Species & Metrics")
+        species_list = [
+            "Gesho", "Gaviliya", "Decurence", "Wanza", "Papaya", 
+            "Lemon", "Guava", "Moringa", "Coffee", "Neem", "Arzelibanos"
+        ]
+        species = st.selectbox("Select Tree/Seed Species", species_list)
+        
+        m1, m2 = st.columns(2)
+        ready = m1.number_input("Count Ready", min_value=0)
+        non_ready = m2.number_input("Count Non Ready", min_value=0)
+        total = m1.number_input("Total Count", min_value=0)
+        mdb = m2.number_input("MDB Plan", min_value=0)
+        healthy = m1.number_input("Healthy Seeding", min_value=0)
+        ready_sd = m2.number_input("Ready Seedling", min_value=0)
+        
+        if st.form_submit_button("Submit Data Record"):
+            if zone and woreda and kebele:
+                with st.spinner("Syncing to GitHub Database..."):
+                    df = fetch_data_from_github()
+                    
+                    new_entry = pd.DataFrame([{
+                        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "Species": species,
+                        "Zone": zone,
+                        "Woreda": woreda, 
+                        "Kebele": kebele, 
+                        "Cluster": cluster,
+                        "Count Ready": ready, 
+                        "Count Non Ready": non_ready, 
+                        "Total Count": total,
+                        "MDB Plan": mdb, 
+                        "Healthy Seeding": healthy, 
+                        "Ready Seedling": ready_sd
+                    }])
+                    
+                    updated_df = pd.concat([df, new_entry], ignore_index=True)
+                    if save_data_to_github(updated_df):
+                        st.success(f"✅ Data for {species} in {kebele} synced successfully!")
+                    else:
+                        st.error("❌ Failed to save data. Check GitHub configurations.")
+            else:
+                st.error("Zone, Woreda, and Kebele are mandatory fields.")
 
+# ============================================================================
+# INTERFACE: ADMINISTRATIVE COMPLIANCE PANELS
+# ============================================================================
 elif st.session_state["page"] == "Data":
-    st.button("⬅️ Back", on_click=lambda: nav("Home"))
+    st.button("⬅️ Back to Home Layout", on_click=lambda: nav("Home"))
+    
     if not st.session_state["auth"]:
-        if st.text_input("Admin Token", type="password") == "oaf2026": st.session_state["auth"] = True; st.rerun()
+        st.header("🔒 Admin Access Verification")
+        pass_input = st.text_input("Enter Passcode Token", type="password")
+        if st.button("Validate"):
+            if pass_input == "oaf2026": 
+                st.session_state["auth"] = True
+                st.rerun()
+            else:
+                st.error("Invalid passcode.")
     else:
         df = fetch_data_from_github()
+        
+        col_t, col_l = st.columns([8, 2])
+        col_t.header("📊 Admin Management Station")
+        if col_l.button("🔒 Lock Portal"):
+            st.session_state["auth"] = False
+            st.rerun()
+
         if not df.empty:
-            st.header("📊 Nursery Analysis Overview")
-            w = st.selectbox("Filter by Woreda", ["All"] + df["Woreda Zone"].unique().tolist())
-            filtered = df if w == "All" else df[df["Woreda Zone"] == w]
-            k = st.selectbox("Filter by Kebele", ["All"] + filtered["Kebele Locality"].unique().tolist())
-            final_df = filtered if k == "All" else filtered[filtered["Kebele Locality"] == k]
+            st.subheader("Filter Data")
             
-            # Metrics
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Gesho Ready", int(final_df["Gesho Count Ready"].sum()))
-            m2.metric("Gesho Non-Ready", int(final_df["Gesho Count Non Ready"].sum()))
-            m3.metric("Gesho Healthy", int(final_df["Gesho Healthy Seeding"].sum()))
+            # --- Dynamic Filtering ---
+            f1, f2, f3 = st.columns(3)
             
-            st.dataframe(final_df, use_container_width=True)
+            # 1. Species Filter
+            species_options = ["All"] + sorted(df["Species"].astype(str).unique().tolist()) if "Species" in df.columns else ["All"]
+            selected_species = f1.selectbox("Filter by Species", species_options)
+            filtered_df = df if selected_species == "All" else df[df["Species"] == selected_species]
+            
+            # 2. Woreda Filter
+            woreda_options = ["All"] + sorted(filtered_df["Woreda"].astype(str).unique().tolist()) if "Woreda" in filtered_df.columns else ["All"]
+            selected_woreda = f2.selectbox("Select Woreda", woreda_options)
+            filtered_df = filtered_df if selected_woreda == "All" else filtered_df[filtered_df["Woreda"] == selected_woreda]
+            
+            # 3. Kebele Filter
+            kebele_options = ["All"] + sorted(filtered_df["Kebele"].astype(str).unique().tolist()) if "Kebele" in filtered_df.columns else ["All"]
+            selected_kebele = f3.selectbox("Select Kebele", kebele_options)
+            filtered_df = filtered_df if selected_kebele == "All" else filtered_df[filtered_df["Kebele"] == selected_kebele]
+
+            # --- Metrics Display ---
+            st.divider()
+            st.subheader(f"Analysis Results: {selected_species} | {selected_woreda} | {selected_kebele}")
+            
+            # We use pd.to_numeric to ensure we are adding numbers safely
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Total Count", int(pd.to_numeric(filtered_df.get("Total Count", 0)).sum()))
+            m2.metric("MDB Plan", int(pd.to_numeric(filtered_df.get("MDB Plan", 0)).sum()))
+            m3.metric("Healthy Seeding", int(pd.to_numeric(filtered_df.get("Healthy Seeding", 0)).sum()))
+            m4.metric("Ready Seedling", int(pd.to_numeric(filtered_df.get("Ready Seedling", 0)).sum()))
+
+            st.divider()
+            st.subheader("Raw Data Table")
+            st.dataframe(filtered_df, use_container_width=True)
+            
+            st.download_button(
+                label="📥 Extract Filtered Data (CSV)",
+                data=filtered_df.to_csv(index=False).encode('utf-8-sig'),
+                file_name=f"Nursery_Data_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                use_container_width=True
+            )
+        else:
+            st.info("No records are currently stored inside your remote GitHub cloud database file.")
