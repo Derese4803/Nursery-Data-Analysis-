@@ -106,10 +106,12 @@ if not df.empty:
             if res.status_code == 200:
                 st.success("Changes saved! Refreshing...")
                 st.rerun()
+            else:
+                st.error("Failed to save to GitHub.")
     else:
         st.success("No active errors in this selection.")
 
-    # 6. COMPARISON ANALYSIS (Percentage Contribution)
+    # 6. COMPARISON ANALYSIS (Error Contribution)
     st.divider()
     st.subheader("📊 Comparison Analysis (Error Volume Contribution)")
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
@@ -117,16 +119,14 @@ if not df.empty:
     
     if sel_items:
         df_comp = df[df[comp_type].isin(sel_items)]
-        # Sum errors per group
+        # Group by the category and sum the error count
         summary = df_comp.groupby(comp_type)['Total_Errors'].sum().reset_index()
         summary.columns = [comp_type, 'Total Errors']
         
-        # Calculate Percentage Contribution
-        total_in_sel = summary['Total Errors'].sum()
-        if total_in_sel > 0:
-            summary['Error Contribution %'] = ((summary['Total Errors'] / total_in_sel) * 100).round(2)
-            
-            # Show Chart & Table
+        total_errors_selected = summary['Total Errors'].sum()
+        
+        if total_errors_selected > 0:
+            summary['Error Contribution %'] = ((summary['Total Errors'] / total_errors_selected) * 100).round(2)
             st.bar_chart(summary.set_index(comp_type)['Error Contribution %'])
             st.dataframe(summary.sort_values(by='Error Contribution %', ascending=False), use_container_width=True)
         else:
