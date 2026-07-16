@@ -29,7 +29,18 @@ st.title("🌱 Nursery Quality Control & Correction Dashboard")
 df = fetch_and_clean_data()
 
 if not df.empty:
-    # 1. Hierarchical Filters
+    # 1. PRE-CALCULATE ERRORS (Ensures 'Total_Errors' exists for all operations)
+    species_list = ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']
+    df['Total_Errors'] = 0
+    for s in species_list:
+        ready_c, seed_c = f"{s} Count Ready", f"{s} Ready Seedling"
+        if ready_c in df.columns and seed_c in df.columns:
+            df[ready_c] = pd.to_numeric(df[ready_c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            df[seed_c] = pd.to_numeric(df[seed_c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            error_mask = (df[seed_c] > df[ready_c]) | ((df[ready_c] - df[seed_c]) > 200)
+            df.loc[error_mask, 'Total_Errors'] += 1
+
+    # 2. Hierarchical Filters
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
     zone = col_f1.selectbox("Zone", ["All"] + sorted(df["Zone"].unique().tolist()))
     df_f = df if zone == "All" else df[df["Zone"] == zone]
@@ -43,19 +54,7 @@ if not df.empty:
     kebele = col_f4.selectbox("Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
     df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
 
-    # --- QC CALCULATIONS ---
-    species_list = ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']
-    df_f = df_f.copy()
-    df_f['Total_Errors'] = 0
-    for s in species_list:
-        ready_c, seed_c = f"{s} Count Ready", f"{s} Ready Seedling"
-        if ready_c in df_f.columns and seed_c in df_f.columns:
-            df_f[ready_c] = pd.to_numeric(df_f[ready_c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            df_f[seed_c] = pd.to_numeric(df_f[seed_c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            error_mask = (df_f[seed_c] > df_f[ready_c]) | ((df_f[ready_c] - df_f[seed_c]) > 200)
-            df_f.loc[error_mask, 'Total_Errors'] += 1
-
-    # 2. Global Metrics & Trends
+    # 3. Global Metrics & Trends
     st.metric("Total Records with QC Errors", int(df_f['Total_Errors'].sum()))
     c1, c2 = st.columns(2)
     with c1:
@@ -65,7 +64,7 @@ if not df.empty:
         st.subheader("Error Trend by Kebele")
         st.line_chart(df_f.groupby("Kebele")['Total_Errors'].sum())
 
-    # 3. Species Analysis & Correction (Visible when Kebele is selected)
+    # 4. Species Analysis & Correction
     if kebele != "All":
         st.divider()
         st.subheader(f"Detailed Species QC: {kebele}")
@@ -85,7 +84,7 @@ if not df.empty:
         else:
             st.success("No errors detected in this Kebele!")
 
-    # 4. Comparison Analysis
+    # 5. Comparison Analysis
     st.divider()
     st.subheader("📊 Comparison Analysis (Performance Metrics)")
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
@@ -106,4 +105,4 @@ if not df.empty:
     st.dataframe(df_f[df_f['Total_Errors'] > 0], use_container_width=True)
 
 else:
-    st.warning("Data not loaded. Please ensure your GitHub token is set in Streamlit secrets.")
+    st.warning("Data not loaded.")
