@@ -10,7 +10,7 @@ GITHUB_REPO = "Nursery-Data-Analysis-"
 CSV_FILENAME = "amhara_me_2026.csv"
 GITHUB_TOKEN = st.secrets["github"]["token"]
 
-st.set_page_config(page_title="Nursery QC & Correction Dashboard", layout="wide")
+st.set_page_config(page_title="Nursery QC Dashboard", layout="wide")
 
 # --- DATA FUNCTIONS ---
 @st.cache_data(ttl=60)
@@ -46,7 +46,7 @@ if 'data' not in st.session_state:
 df = st.session_state.data
 
 if not df.empty:
-    # 1. ERROR CALCULATION
+    # 1. ERROR CALCULATION (Apply to the FULL dataframe)
     species_list = ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']
     df['Total_Errors'] = 0
     for s in species_list:
@@ -57,7 +57,7 @@ if not df.empty:
             mask = ((df[sc] > df[r]) | ((df[r] - df[sc]) > 200)) & (df['Justification'].fillna("") == "")
             df.loc[mask, 'Total_Errors'] = 1
 
-    st.title("🌱 Nursery Quality Control & Correction Dashboard")
+    st.title("🌱 Nursery Quality Control Dashboard")
 
     # 2. METRICS
     col1, col2, col3, col4 = st.columns(4)
@@ -80,15 +80,7 @@ if not df.empty:
     kebele = col_f4.selectbox("Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
     df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
 
-    # 4. VISUALS
-    st.subheader("📊 Performance Analytics")
-    c1, c2, c3 = st.columns(3)
-    c1.bar_chart(df_f.groupby("Cluster")['Total_Errors'].sum())
-    c2.line_chart(df_f.groupby("Zone")['Total_Errors'].sum())
-    c3.bar_chart(df_f.groupby("Woreda")['Total_Errors'].sum())
-
-    # 5. CORRECTION CENTER
-    st.divider()
+    # 4. CORRECTION CENTER
     st.subheader("🛠 Correction & Justification Center")
     error_df = df_f[df_f['Total_Errors'] > 0]
     if not error_df.empty:
@@ -97,24 +89,25 @@ if not df.empty:
             df.update(edited_df)
             st.session_state.data = df
             if save_to_github(df, st.session_state.sha).status_code == 200:
-                st.success("Saved!")
+                st.success("Changes saved! Refreshing...")
                 st.rerun()
     else:
-        st.success("No errors.")
+        st.info("No active errors in this selection.")
 
-    # 6. COMPARISON ANALYSIS
+    # 5. COMPARISON ANALYSIS (FIXED CALCULATION)
     st.divider()
     st.subheader("📊 Comparative Priority Ranking")
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
     sel_items = st.multiselect(f"Select {comp_type}s to Compare", sorted(df[comp_type].unique().tolist()))
     
     if sel_items:
+        # Group the FULL dataframe (df), NOT just the error subset
         df_comp = df[df[comp_type].isin(sel_items)]
-        # Grouping by the selected category to see distinct values
         summary = df_comp.groupby(comp_type)['Total_Errors'].agg(['sum', 'count'])
-        summary['Error Rate %'] = ((summary['sum'] / summary['count']) * 100).round(2)
+        summary.columns = ['Error Count', 'Total Records']
+        summary['Error Rate %'] = ((summary['Error Count'] / summary['Total Records']) * 100).round(2)
         
         st.bar_chart(summary['Error Rate %'])
         st.dataframe(summary.sort_values(by='Error Rate %', ascending=False), use_container_width=True)
-else:
-    st.warning("Data not loaded.")
+    else:
+        st.info("Select items to generate comparison analysis.")
