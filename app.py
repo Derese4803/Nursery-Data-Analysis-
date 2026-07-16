@@ -36,8 +36,7 @@ def save_to_github(df, sha):
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     return requests.put(url, json=data, headers=headers)
 
-# --- INTERFACE ---
-st.title("🌱 Nursery Quality Control & Correction Dashboard")
+# --- APP LOGIC ---
 df, file_sha = fetch_data()
 
 if not df.empty:
@@ -63,7 +62,23 @@ if not df.empty:
     kebele = col_f4.selectbox("Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
     df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
 
-    # 3. Correction & Justification Center
+    # 3. Visual Analysis
+    st.title("🌱 Nursery Quality Control & Correction Dashboard")
+    st.metric("Total Active QC Errors", int(df_f['Total_Errors'].sum()))
+    
+    st.subheader("📊 Performance & Error Analytics")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.caption("Error Distribution by Cluster (Bar)")
+        st.bar_chart(df_f.groupby("Cluster")['Total_Errors'].sum())
+    with c2:
+        st.caption("Error Trend by Zone (Line)")
+        st.line_chart(df_f.groupby("Zone")['Total_Errors'].sum())
+    with c3:
+        st.caption("Error Distribution by Woreda (Bar)")
+        st.bar_chart(df_f.groupby("Woreda")['Total_Errors'].sum())
+
+    # 4. Correction & Justification Center
     st.divider()
     st.subheader("🛠 Correction & Justification Center")
     error_df = df_f[df_f['Total_Errors'] > 0]
@@ -74,14 +89,12 @@ if not df.empty:
             df.update(edited_df)
             res = save_to_github(df, file_sha)
             if res.status_code == 200:
-                st.success("Changes saved! Justified records are now excluded from error counts.")
+                st.success("Changes saved! Justified records are now excluded.")
                 st.rerun()
-            else:
-                st.error("Failed to save to GitHub.")
     else:
         st.success("No active errors found in this selection.")
 
-    # 4. Comparison Analysis (Priority Ranking)
+    # 5. Comparison Analysis (Priority Ranking)
     st.divider()
     st.subheader("📊 Comparison Analysis (Priority Ranking)")
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
@@ -96,5 +109,6 @@ if not df.empty:
         summary['Error Rate %'] = ((summary['Total Errors'] / summary['Total Records']) * 100).round(2)
         summary = summary.sort_values(by='Error Rate %', ascending=False)
         st.dataframe(summary, use_container_width=True)
+
 else:
     st.warning("Data not loaded.")
