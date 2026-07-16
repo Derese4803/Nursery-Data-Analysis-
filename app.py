@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import base64
 import io
+import matplotlib.pyplot as plt
 
 # --- CONFIGURATION ---
 GITHUB_OWNER = "Derese4803"
@@ -11,72 +12,53 @@ CSV_FILENAME = "amhara_me_2026.csv"
 
 st.set_page_config(page_title="Nursery-Data-Analysis", layout="wide")
 
-# --- DATA FETCHING ---
+# --- DATA FETCHING & CLEANING ---
 @st.cache_data(ttl=60)
 def fetch_data():
     token = st.secrets.get("github", {}).get("token")
-    if not token:
-        st.error("GitHub token missing in secrets.")
-        return pd.DataFrame()
-        
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
     url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{CSV_FILENAME}"
     
-    try:
-        response = requests.get(url, headers=headers, timeout=15)
-        if response.status_code == 200:
-            content = base64.b64decode(response.json()['content']).decode('utf-8')
-            return pd.read_csv(io.StringIO(content))
-        else:
-            st.error(f"Error {response.status_code}: Check repo name or file path.")
-            return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Connection Error: {e}")
-        return pd.DataFrame()
+    response = requests.get(url, headers=headers, timeout=15)
+    if response.status_code == 200:
+        content = base64.b64decode(response.json()['content']).decode('utf-8')
+        df = pd.read_csv(io.StringIO(content))
+        # Clean numeric columns (remove commas)
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='ignore')
+        return df
+    return pd.DataFrame()
 
-# --- APP INTERFACE ---
+# --- INTERFACE ---
 st.title("🌱 Nursery-Data-Analysis")
 df = fetch_data()
 
 if not df.empty:
-    st.sidebar.header("Filter Data")
+    sel_species = st.sidebar.selectbox("Select Species", sorted(list(set([c.split(' ')[0] for c in df.columns if ' ' in c]))))
     
-    # 1. Hierarchical Location Filtering
-    zone = st.sidebar.selectbox("Select Zone", ["All"] + sorted(df["Zone"].unique().tolist()))
-    df_f = df if zone == "All" else df[df["Zone"] == zone]
+    # CALCULATE PERCENTAGE
+    total_col = f"{sel_species} Total Count"
+    ready_col = f"{sel_species} Ready Seedling"
     
-    woreda = st.sidebar.selectbox("Select Woreda", ["All"] + sorted(df_f["Woreda"].unique().tolist()))
-    df_f = df_f if woreda == "All" else df_f[df_f["Woreda"] == woreda]
-    
-    kebele = st.sidebar.selectbox("Select Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
-    df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
-    
-    # 2. Species Selector
-    # Automatically extracts unique species (e.g., 'Gesho', 'Arzelibano') from column names
-    all_columns = [c.split(' ')[0] for c in df.columns if ' ' in c]
-    species_list = sorted(list(set(all_columns)))
-    sel_species = st.selectbox("Select Species", species_list)
-    
-    st.divider()
-    
-    # 3. Dynamic Aggregation
-    st.subheader(f"Results: {sel_species} in {kebele}, {woreda}")
-    
-    # Filter columns that belong to the selected species
-    cols_to_sum = [c for c in df.columns if c.startswith(sel_species)]
-    
-    if cols_to_sum:
-        # Calculate sums
-        metrics = df_f[cols_to_sum].sum()
+    if total_col in df.columns and ready_col in df.columns:
+        total = df[total_col].sum()
+        ready = df[ready_col].sum()
+        percentage = (ready / total * 100) if total > 0 else 0
         
-        # Display as metric cards
-        cols = st.columns(len(metrics))
-        for i, (name, val) in enumerate(metrics.items()):
-            clean_name = name.replace(f"{sel_species} ", "")
-            cols[i].metric(clean_name, f"{int(val):,}")
+        # Display Metrics
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Total Count", f"{int(total):,}")
+        m2.metric("Ready Seedlings", f"{int(ready):,}")
+        m3.metric("Readiness %", f"{percentage:.1f}%")
+        
+        # Visualization
+        st.subheader(f"Readiness Breakdown: {sel_species}")
+        fig, ax = plt.subplots()
+        ax.pie([ready, max(0, total - ready)], labels=['Ready', 'Not Ready'], 
+               autopct='%1.1f%%', colors=['#2ecc71', '#e74c3c'], startangle=90)
+        st.pyplot(fig)
     else:
-        st.info("No data columns found for this species.")
-    
-    st.dataframe(df_f, use_container_width=True)
-else:
-    st.warning("No data loaded. Check repository name and CSV path.")
+        st.warning("Required columns not found for this species.")
+
+    st.dataframe(df, use_container_width=True)
