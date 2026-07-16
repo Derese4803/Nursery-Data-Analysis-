@@ -37,7 +37,7 @@ def save_to_github(df, sha):
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     return requests.put(url, json=data, headers=headers)
 
-# --- SESSION STATE INITIALIZATION ---
+# --- SESSION STATE ---
 if 'data' not in st.session_state:
     df_load, sha_load = fetch_data()
     st.session_state.data = df_load
@@ -46,7 +46,7 @@ if 'data' not in st.session_state:
 df = st.session_state.data
 
 if not df.empty:
-    # 1. PRE-CALCULATE ERRORS
+    # 1. ERROR CALCULATION
     species_list = ['Gesho', 'Grevillea', 'Decurrens', 'Wanza', 'Papaya', 'Moringa', 'Coffee', 'Guava', 'Lemon', 'Arzelibano', 'Neem']
     df['Total_Errors'] = 0
     for s in species_list:
@@ -59,16 +59,14 @@ if not df.empty:
 
     st.title("🌱 Nursery Quality Control & Correction Dashboard")
 
-    # 2. OVERALL DATA ANALYSIS METRICS
+    # 2. METRICS
+    col1, col2, col3, col4 = st.columns(4)
     total_recs = len(df)
     active_errors = df['Total_Errors'].sum()
-    accuracy_rate = ((total_recs - active_errors) / total_recs * 100) if total_recs > 0 else 0
-    
-    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Records", total_recs)
     col2.metric("Active Errors", int(active_errors))
-    col3.metric("Justified Records", int(df['Justification'].replace("", None).count()))
-    col4.metric("Data Accuracy Rate", f"{accuracy_rate:.2f}%")
+    col3.metric("Justified", int(df['Justification'].replace("", None).count()))
+    col4.metric("Accuracy Rate", f"{((total_recs - active_errors)/total_recs*100):.2f}%")
 
     # 3. FILTERS
     st.divider()
@@ -82,14 +80,11 @@ if not df.empty:
     kebele = col_f4.selectbox("Kebele", ["All"] + sorted(df_f["Kebele"].unique().tolist()))
     df_f = df_f if kebele == "All" else df_f[df_f["Kebele"] == kebele]
 
-    # 4. VISUAL ANALYSIS
-    st.subheader("📊 Performance & Error Analytics")
+    # 4. VISUALS
+    st.subheader("📊 Performance Analytics")
     c1, c2, c3 = st.columns(3)
-    c1.caption("Error Distribution by Cluster (Bar)")
     c1.bar_chart(df_f.groupby("Cluster")['Total_Errors'].sum())
-    c2.caption("Error Trend by Zone (Line)")
     c2.line_chart(df_f.groupby("Zone")['Total_Errors'].sum())
-    c3.caption("Error Distribution by Woreda (Bar)")
     c3.bar_chart(df_f.groupby("Woreda")['Total_Errors'].sum())
 
     # 5. CORRECTION CENTER
@@ -101,28 +96,25 @@ if not df.empty:
         if st.button("Save Changes to GitHub"):
             df.update(edited_df)
             st.session_state.data = df
-            res = save_to_github(df, st.session_state.sha)
-            if res.status_code == 200:
-                st.success("Changes saved! Refreshing...")
+            if save_to_github(df, st.session_state.sha).status_code == 200:
+                st.success("Saved!")
                 st.rerun()
     else:
-        st.success("No active errors in this selection.")
+        st.success("No errors.")
 
-    # 6. COMPARISON ANALYSIS (WITH NEW GRAPH)
+    # 6. COMPARISON ANALYSIS
     st.divider()
-    st.subheader("📊 Comparison Analysis (Priority Ranking)")
+    st.subheader("📊 Comparative Priority Ranking")
     comp_type = st.radio("Compare by:", ["Zone", "Cluster", "Woreda"], horizontal=True)
     sel_items = st.multiselect(f"Select {comp_type}s to Compare", sorted(df[comp_type].unique().tolist()))
     
     if sel_items:
         df_comp = df[df[comp_type].isin(sel_items)]
-        grouped = df_comp.groupby(comp_type)['Total_Errors'].agg(['sum', 'count'])
-        summary = pd.DataFrame()
-        summary['Error Rate %'] = ((grouped['sum'] / grouped['count']) * 100).fillna(0).round(2)
+        # Grouping by the selected category to see distinct values
+        summary = df_comp.groupby(comp_type)['Total_Errors'].agg(['sum', 'count'])
+        summary['Error Rate %'] = ((summary['sum'] / summary['count']) * 100).round(2)
         
-        # Display Bar Chart for Comparison
         st.bar_chart(summary['Error Rate %'])
-        # Display Table
         st.dataframe(summary.sort_values(by='Error Rate %', ascending=False), use_container_width=True)
-    else:
-        st.info("Select items above to see priority ranking.")
+else:
+    st.warning("Data not loaded.")
